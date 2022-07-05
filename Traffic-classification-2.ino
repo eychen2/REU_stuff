@@ -1,3 +1,5 @@
+#include <ArduinoJson.h>
+#include <WiFiClientSecure.h>
 #include <TensorFlowLite.h>
 #include "tensorflow/lite/micro/all_ops_resolver.h"
 #include "tensorflow/lite/micro/micro_error_reporter.h"
@@ -6,8 +8,6 @@
 #include "tensorflow/lite/micro/micro_mutable_op_resolver.h"
 #include "rpcWiFi.h"
 #include "model-final.h"
-#include "test1d.h"
-#include "testlabel1d.h"
 using namespace std;
 namespace {
   tflite::ErrorReporter* error_reporter = nullptr;
@@ -19,12 +19,16 @@ namespace {
   TfLiteTensor* output = nullptr;
 }
 const char* ssid = "FIU_WiFi";
-const char* password =  "";
+const char* password = "";
+const char* server = "http://";
+String data;
+WiFiClientSecure client;
+float s_input[784] = {};
+int label =-1;
 void setup() {
-  int check=-1;
   Serial.begin(9600);
   while (!Serial);
-  /*WiFi.mode(WIFI_STA);
+  WiFi.mode(WIFI_STA);
   WiFi.disconnect();
   delay(100);
   Serial.println("Connecting to WiFi..");
@@ -37,7 +41,6 @@ void setup() {
   Serial.println("Connected to the WiFi network");
   Serial.print("IP Address: ");
   Serial.println (WiFi.localIP()); // prints out the device's IP address */
-  //wifi_promiscuous_cb_t();
   static tflite::MicroErrorReporter micro_error_reporter;
   error_reporter = &micro_error_reporter;
   
@@ -104,7 +107,7 @@ void setup() {
   }
   Serial.print("Number of test data predicted correctly: ");
   Serial.println(count);*/
-  int count=0;
+  /*int count=0;
   int index=0;
   for(unsigned int a=0; a<5;++a)
   {
@@ -136,7 +139,68 @@ void setup() {
   }
   
   Serial.print("Number of test data predicted correctly: ");
-  Serial.println(count);
+  Serial.println(count);*/
 }
-void loop() {    
+void loop() {
+  int check=-1;
+  bool state=true;
+  if(state)
+    getData();
+  for(unsigned int j=0; j<784;++j)
+  {
+    input->data.int8[j]=s_input[j]/ input->params.scale + input->params.zero_point;
+  }
+   state=!state;
+   TfLiteStatus invoke_status = interpreter->Invoke();
+    if (invoke_status != kTfLiteOk) {
+  
+      TF_LITE_REPORT_ERROR(error_reporter, "Invoke failed");
+    return;
+    }
+    int8_t y_quantized = output->data.int8[0];
+    float y = (y_quantized - output->params.zero_point) * output->params.scale;
+    if(y>=0.5)
+     check=1;
+    else
+      check=0;
+    if(check==label)
+      Serial.println("The model predicted correctly");
+    else
+      Serial.println("The model predicted incorrectly");
+      delay(10000);    
 }
+void getData(){
+  if (!client.connect(server, 5000)) {
+        Serial.println("Connection failed!");
+    } else {
+        Serial.println("Connected to server!"); 
+        // Make a HTTP request:
+        client.println("GET http://:5000/data HTTP/1.0");
+        client.println("Host: http://:5000");
+        client.println("Connection: close");
+        client.println();
+ 
+        while (client.connected()) {
+            String line = client.readStringUntil('\n');
+            if (line == "\r") {
+                Serial.println("headers received");
+                break;
+            }
+        }
+ 
+        while(client.available())
+        {
+          String line = client.readStringUntil('\r');
+          data = line;
+        }
+        Serial.println(data);
+        client.stop();
+        Serial.println("closing connection");
+    }
+ 
+    DynamicJsonDocument doc(16384);
+    deserializeJson(doc, data);
+    for(unsigned int i=0; i<784;++i)
+      s_input[i] = doc["data"][i];
+    label = doc["label"];
+    }
