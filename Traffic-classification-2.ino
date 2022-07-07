@@ -1,5 +1,4 @@
 #include <ArduinoJson.h>
-#include <WiFiClientSecure.h>
 #include <TensorFlowLite.h>
 #include "tensorflow/lite/micro/all_ops_resolver.h"
 #include "tensorflow/lite/micro/micro_error_reporter.h"
@@ -13,16 +12,19 @@ namespace {
   tflite::ErrorReporter* error_reporter = nullptr;
   const tflite::Model* model = nullptr;
   tflite::MicroInterpreter* interpreter = nullptr;
-  constexpr int kTensorArenaSize=1024*20;
+  constexpr int kTensorArenaSize=1024*10;
   uint8_t tensor_arena[kTensorArenaSize];
   TfLiteTensor* input = nullptr;
   TfLiteTensor* output = nullptr;
 }
 const char* ssid = "FIU_WiFi";
-const char* password = "";
-const char* server = "http://";
+const char* password = "ddotdd13";
+const char* host ="10.110.195.35";
+const uint16_t port = 5000;
+//const char* server = "10.110.195.35:5000";
+
 String data;
-WiFiClientSecure client;
+WiFiClient client;
 float s_input[784] = {};
 int label =-1;
 void setup() {
@@ -43,7 +45,7 @@ void setup() {
   Serial.println (WiFi.localIP()); // prints out the device's IP address */
   static tflite::MicroErrorReporter micro_error_reporter;
   error_reporter = &micro_error_reporter;
-  
+  Serial.println("reached 1");
   // Map the model into a usable data structure. This doesn't involve any
   // copying or parsing, it's a very lightweight operation.
   model = tflite::GetModel(model_final_tflite);
@@ -54,6 +56,7 @@ void setup() {
                          model->version(), TFLITE_SCHEMA_VERSION);
     return;
   }
+  Serial.println("reached 2");
   static tflite::MicroMutableOpResolver<7> resolver;
   resolver.AddQuantize();
   resolver.AddConv2D();
@@ -65,7 +68,7 @@ void setup() {
   static tflite::MicroInterpreter static_interpreter(
       model, resolver, tensor_arena, kTensorArenaSize, error_reporter);
   interpreter = &static_interpreter;
-
+Serial.println("reached 3");
   // Allocate memory from the tensor_arena for the model's tensors.
   TfLiteStatus allocate_status = interpreter->AllocateTensors();
   if (allocate_status != kTfLiteOk) {
@@ -75,6 +78,7 @@ void setup() {
    // Obtain pointers to the model's input and output tensors.
   input = interpreter->input(0);
   output = interpreter->output(0);
+  Serial.println("reached 4");
   /*float value=0;
   int count=0;
   string test;
@@ -140,17 +144,21 @@ void setup() {
   
   Serial.print("Number of test data predicted correctly: ");
   Serial.println(count);*/
+  Serial.println("End of setup");
 }
 void loop() {
+  Serial.println("In loop");
   int check=-1;
   bool state=true;
   if(state)
+  {
+    Serial.println("reached");
     getData();
+  }
   for(unsigned int j=0; j<784;++j)
   {
     input->data.int8[j]=s_input[j]/ input->params.scale + input->params.zero_point;
   }
-   state=!state;
    TfLiteStatus invoke_status = interpreter->Invoke();
     if (invoke_status != kTfLiteOk) {
   
@@ -170,15 +178,44 @@ void loop() {
       delay(10000);    
 }
 void getData(){
-  if (!client.connect(server, 5000)) {
-        Serial.println("Connection failed!");
+  Serial.println("Made it into the function");
+  if (!client.connect(host, port)) {
+        Serial.println("Connection failed.");
+        Serial.println("Waiting 5 seconds before retrying...");
+        delay(5000);
+        return;
+    }
+    client.print("GET /data HTTP/1.1\n\n");
+    int maxloops = 0;
+ 
+    //wait for the server's reply to become available
+    while (!client.available() && maxloops < 1000) {
+        maxloops++;
+        delay(1); //delay 1 msec
+    }
+    if (client.available() > 0) {
+        //read back one line from the server
+        data = client.readString(); // Read from the server response
+        // Proceed various line-endings
+        data.replace("\r\n", "\n");
+        data.replace('\r', '\n');
+        data.replace("\n", "\r\n");
+        Serial.println(data);
     } else {
+        Serial.println("client.available() timed out ");
+    }
+  /*if (!client.connect(server, 4000)) {
+        Serial.println("Connection failed!");
+    }
+    else {
         Serial.println("Connected to server!"); 
         // Make a HTTP request:
-        client.println("GET http://:5000/data HTTP/1.0");
-        client.println("Host: http://:5000");
+        Serial.println("Reached checkpoint 1");
+        client.println("GET http://10.110.195.35:5000/data HTTP/1.1");
+        client.println("Host: http://10.110.195.35:5000");
         client.println("Connection: close");
         client.println();
+        Serial.println("Reached checkpoint 2");
  
         while (client.connected()) {
             String line = client.readStringUntil('\n');
@@ -187,7 +224,7 @@ void getData(){
                 break;
             }
         }
- 
+        Serial.println("Reached checkpoint 3");
         while(client.available())
         {
           String line = client.readStringUntil('\r');
@@ -196,11 +233,11 @@ void getData(){
         Serial.println(data);
         client.stop();
         Serial.println("closing connection");
-    }
+    }*/
  
     DynamicJsonDocument doc(16384);
     deserializeJson(doc, data);
     for(unsigned int i=0; i<784;++i)
       s_input[i] = doc["data"][i];
     label = doc["label"];
-    }
+}
